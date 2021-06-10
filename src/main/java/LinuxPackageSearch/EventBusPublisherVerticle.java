@@ -20,7 +20,7 @@ public class EventBusPublisherVerticle extends AbstractVerticle {
 	public void start (Future<Void> startFuture) throws Exception {
         vertx.eventBus().request("linux", pkgName, ar -> {
         	  if (ar.succeeded()) {
-        		  System.out.println("Package sent = " + pkgName);
+        		  System.out.println("pkgName sent = " + pkgName);
         		  System.out.println("Package received back = " + ar.result().body());
         		    }
         	  else {

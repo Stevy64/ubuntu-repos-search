@@ -10,11 +10,17 @@ import java.io.ByteArrayInputStream;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
+
+import java.util.List;
+
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.MessageConsumer;
@@ -33,7 +39,14 @@ public class PackageManagerSearch extends AbstractVerticle {
 	public String[] ubuntuCodeName = { "focal", "bionic" };
 	public String[] ubuntuPkg = {
 			"/main/i18n/Translation-fr.gz",
-			"/universe/binary-amd64/Packages.gz" };
+			"/restricted/i18n/Translation-fr.gz",
+			"/universe/i18n/Translation-fr.gz",
+			"/multiverse/i18n/Translation-fr.gz",
+			"/main/binary-amd64/Packages.gz",
+			"/restricted/binary-amd64/Packages.gz",
+			"/universe/binary-amd64/Packages.gz",
+			"/multiverse/binary-amd64/Packages.gz"
+			};
 
 	@Override
 	public void start(Future<Void> startFuture) {
@@ -41,71 +54,96 @@ public class PackageManagerSearch extends AbstractVerticle {
 		EventBus eb = vertx.eventBus();
 
 		MessageConsumer<String> consumer = eb.consumer("linux", message -> {
+			JsonArray arrayJsonArray = new JsonArray();
 			String pkgName = message.body().toString();
+			List<Future> futures = new ArrayList<>();
 
 			// Search implementation
 			try {
 				WebClientOptions options = new WebClientOptions();
 				WebClient client = WebClient.create(vertx, options);
 
-				String repository = ubuntuRepos + ubuntuCodeName[0] + ubuntuPkg[0];
-
 				Pattern packageNamePattern = Pattern.compile("Package: (.*)");
 				Pattern descriptionPattern = Pattern.compile("Description(-fr)?: (.*)");
-				JsonArray jsonArray = new JsonArray();
+				List<Promise<JsonArray>> promises = new ArrayList<>();
+				for (int i = 0; i < ubuntuPkg.length; i++) {
+					
+					Promise<JsonArray> promise = Promise.promise();
+					futures.add(promise.future());
+					promises.add(promise);
+					String repository = ubuntuRepos + ubuntuCodeName[1] + ubuntuPkg[i];
+					// Send a GET request
+					client.getAbs(repository).followRedirects(true).send(ar -> {
+						JsonArray jsonArray = new JsonArray();
+						if (ar.succeeded()) {
+							// Obtain response
+							HttpResponse<Buffer> response = ar.result();
+							//System.out.println("URL : " + repository);
+							try {
+								ByteArrayInputStream responseBytes = new ByteArrayInputStream(
+										response.body().getBytes());
+								GZIPInputStream responseGzip = new GZIPInputStream(responseBytes);
+								InputStreamReader responseContent = new InputStreamReader(responseGzip, "UTF-8");
+								BufferedReader data = new BufferedReader(responseContent);
 
-				// Send a GET request
-				client.getAbs(repository).followRedirects(true).send(ar -> {
-					if (ar.succeeded()) {
-						// Obtain response
-						HttpResponse<Buffer> response = ar.result();
-						System.out.println("URL : " + repository);
-						try {
-							ByteArrayInputStream responseBytes = new ByteArrayInputStream(response.body().getBytes());
-							GZIPInputStream responseGzip = new GZIPInputStream(responseBytes);
-							InputStreamReader responseContent = new InputStreamReader(responseGzip, "UTF-8");
-							BufferedReader data = new BufferedReader(responseContent);
+								StringBuffer sb = new StringBuffer();
+								while (true) {
+									String line = data.readLine();
+									if (line == "" || line == null)
+										break;
+									sb.append(line).append("\n");
+								}
 
-							StringBuffer sb = new StringBuffer();
-							while (true) {
-								String line = data.readLine();
-								if (line == "" || line == null)
-									break;
-								sb.append(line).append("\n");
-							}
-
-							String[] blocks = sb.toString().split("\n\n");
-							for (String block : blocks) {
-								if (block.startsWith("Package") && block.contains(pkgName)) {
-									String[] lines = block.split("\n");
-									JsonObject pkgObj = new JsonObject();
-									for (String line : lines) {
-										Matcher m = packageNamePattern.matcher(line);
-										if (m.matches()) {
-											pkgObj.put("Package", (m.group(1)));
-										} else {
-											m = descriptionPattern.matcher(line);
+								String[] blocks = sb.toString().split("\n\n");
+								for (String block : blocks) {
+									if (block.startsWith("Package: "+pkgName)) {
+										String[] lines = block.split("\n");
+										JsonObject pkgObj = new JsonObject();
+										for (String line : lines) {
+											Matcher m = packageNamePattern.matcher(line);
 											if (m.matches()) {
-												pkgObj.put("Description", (m.group(2)));
+												pkgObj.put("Package", (m.group(1)));
+											} else {
+												m = descriptionPattern.matcher(line);
+												if (m.matches()) {
+													pkgObj.put("Description", (m.group(2)));
+												}
 											}
 										}
+										jsonArray.add(pkgObj);
+										// arrayJsonArray.add(jsonArray);
+										// System.out.println("Replying back : " + jsonArray.encodePrettily());
+										// message.reply(jsonArray.encodePrettily());
 									}
-									jsonArray.add(pkgObj);
-									//System.out.println("Reply back : " + jsonArray.encodePrettily());
-									//message.reply(jsonArray.encodePrettily());
 								}
-								//System.out.println("Reply back : " + jsonArray.encodePrettily());
-								//message.reply(jsonArray.encodePrettily());
+
+							} catch (IOException e) {
+								e.printStackTrace();
 							}
-							message.reply(jsonArray.encodePrettily());
-
-						} catch (IOException e) {
-							e.printStackTrace();
+							if (!jsonArray.isEmpty()) {
+								promise.complete(jsonArray);
+								//System.out.println("Promise : " + "URL =" + repository + " Result => " + promise.future().result());
+							}
+							else {
+								promise.complete();
+							}
+						} else {
+							System.out.println("GET : Something went wrong " + ar.cause().getMessage());
+							promise.fail(ar.cause().getMessage());
 						}
-
-					} else {
-						System.out.println("GET : Something went wrong " + ar.cause().getMessage());
-					}
+					});
+					// arrayJsonArray.add(jsonArray);
+					// System.out.println("Replying back : " + arrayJsonArray.encodePrettily());
+				}
+				CompositeFuture.all(futures).onComplete(ar -> {
+					futures.forEach( fut -> {
+					    if (fut.succeeded() && fut.result() != null) {
+					    	arrayJsonArray.add(fut.result());
+					    } else {
+					    	System.out.println( "futures failed " + fut + " : " + fut.result() );
+					    }
+					  });
+					message.reply(arrayJsonArray.encodePrettily());
 				});
 
 			} catch (Exception e) {
