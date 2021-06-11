@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
 import java.util.List;
+import java.util.Scanner;
 
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.CompositeFuture;
@@ -58,13 +59,11 @@ public class PackageManagerSearch extends AbstractVerticle {
 			String pkgName = message.body().toString();
 			List<Future> futures = new ArrayList<>();
 
-			// Search implementation
+			// Research implementation
 			try {
 				WebClientOptions options = new WebClientOptions();
 				WebClient client = WebClient.create(vertx, options);
-
-				Pattern packageNamePattern = Pattern.compile("Package: (.*)");
-				Pattern descriptionPattern = Pattern.compile("Description(-fr)?: (.*)");
+				
 				List<Promise<JsonArray>> promises = new ArrayList<>();
 				for (int i = 0; i < ubuntuPkg.length; i++) {
 					
@@ -76,64 +75,51 @@ public class PackageManagerSearch extends AbstractVerticle {
 					client.getAbs(repository).followRedirects(true).send(ar -> {
 						JsonArray jsonArray = new JsonArray();
 						if (ar.succeeded()) {
-							// Obtain response
+							
 							HttpResponse<Buffer> response = ar.result();
 							//System.out.println("URL : " + repository);
 							try {
-								ByteArrayInputStream responseBytes = new ByteArrayInputStream(
-										response.body().getBytes());
+								ByteArrayInputStream responseBytes = new ByteArrayInputStream(response.body().getBytes());
 								GZIPInputStream responseGzip = new GZIPInputStream(responseBytes);
 								InputStreamReader responseContent = new InputStreamReader(responseGzip, "UTF-8");
 								BufferedReader data = new BufferedReader(responseContent);
-
-								StringBuffer sb = new StringBuffer();
-								while (true) {
-									String line = data.readLine();
-									if (line == "" || line == null)
-										break;
-									sb.append(line).append("\n");
-								}
-
-								String[] blocks = sb.toString().split("\n\n");
-								for (String block : blocks) {
-									if (block.startsWith("Package: "+pkgName)) {
-										String[] lines = block.split("\n");
-										JsonObject pkgObj = new JsonObject();
-										for (String line : lines) {
-											Matcher m = packageNamePattern.matcher(line);
-											if (m.matches()) {
-												pkgObj.put("Package", (m.group(1)));
-											} else {
-												m = descriptionPattern.matcher(line);
-												if (m.matches()) {
-													pkgObj.put("Description", (m.group(2)));
-												}
+								
+								Pattern blockNamePattern = Pattern.compile("^" + pkgName + "(.*)");
+								Pattern blockDescriptionPattern = Pattern.compile("Description(-fr)?: (.*)");
+								
+								Scanner scanner = new Scanner(data).useDelimiter("Package: ");
+								while (scanner.hasNext()) {
+									
+									String bloc = scanner.next();
+									Matcher m = blockNamePattern.matcher(bloc);
+									JsonObject pkgObj = new JsonObject();
+									
+									if (bloc.startsWith((pkgName))) {
+										
+										if (m.find()) {
+											pkgObj.put("Package", (m.group(0)));
+											m = blockDescriptionPattern.matcher(bloc);
+											
+											if (m.find()) {
+												pkgObj.put("Description", (m.group(2)));
+												jsonArray.add(pkgObj);
+												//System.out.println("LINK : " + repository);
+												//System.out.println(jsonArray.encodePrettily() + "\n\n");
 											}
 										}
-										jsonArray.add(pkgObj);
-										// arrayJsonArray.add(jsonArray);
-										// System.out.println("Replying back : " + jsonArray.encodePrettily());
-										// message.reply(jsonArray.encodePrettily());
 									}
 								}
-
+								scanner.close();
+								
 							} catch (IOException e) {
 								e.printStackTrace();
 							}
-							if (!jsonArray.isEmpty()) {
-								promise.complete(jsonArray);
-								//System.out.println("Promise : " + "URL =" + repository + " Result => " + promise.future().result());
-							}
-							else {
-								promise.complete();
-							}
+							promise.complete(jsonArray);
 						} else {
 							System.out.println("GET : Something went wrong " + ar.cause().getMessage());
 							promise.fail(ar.cause().getMessage());
 						}
 					});
-					// arrayJsonArray.add(jsonArray);
-					// System.out.println("Replying back : " + arrayJsonArray.encodePrettily());
 				}
 				CompositeFuture.all(futures).onComplete(ar -> {
 					futures.forEach( fut -> {
