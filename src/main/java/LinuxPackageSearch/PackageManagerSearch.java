@@ -36,81 +36,81 @@ import io.vertx.ext.web.client.WebClientOptions;
  * @author steevy
  */
 public class PackageManagerSearch extends AbstractVerticle {
-	public String ubuntuRepos = "http://archive.ubuntu.com/ubuntu/dists/";
-	public String[] ubuntuCodeName = { "focal", "bionic" };
-	public String[] ubuntuPkg = {
-			"/main/i18n/Translation-fr.gz",
+	public static final String UBUNTU_REPOS = "http://archive.ubuntu.com/ubuntu/dists/";
+	private String[] ubuntuPkg = { "/main/i18n/Translation-fr.gz",
 			"/restricted/i18n/Translation-fr.gz",
 			"/universe/i18n/Translation-fr.gz",
 			"/multiverse/i18n/Translation-fr.gz",
 			"/main/binary-amd64/Packages.gz",
 			"/restricted/binary-amd64/Packages.gz",
 			"/universe/binary-amd64/Packages.gz",
-			"/multiverse/binary-amd64/Packages.gz"
-			};
+			"/multiverse/binary-amd64/Packages.gz" };
 
 	@Override
 	public void start(Future<Void> startFuture) {
 
 		EventBus eb = vertx.eventBus();
 
-		MessageConsumer<String> consumer = eb.consumer("linux", message -> {
+		MessageConsumer<JsonObject> consumer = eb.consumer("kit.applications.chocolatey.package.search", message -> {
 			JsonArray arrayJsonArray = new JsonArray();
-			String pkgName = message.body().toString();
+			String pkgName = message.body().getString("Package");
+			String codeName = message.body().getString("UbuntuCodeName");
 			List<Future> futures = new ArrayList<>();
 
 			// Research implementation
 			try {
 				WebClientOptions options = new WebClientOptions();
 				WebClient client = WebClient.create(vertx, options);
-				
+
 				List<Promise<JsonArray>> promises = new ArrayList<>();
 				for (int i = 0; i < ubuntuPkg.length; i++) {
-					
+
 					Promise<JsonArray> promise = Promise.promise();
 					futures.add(promise.future());
 					promises.add(promise);
-					String repository = ubuntuRepos + ubuntuCodeName[1] + ubuntuPkg[i];
+					String repository = UBUNTU_REPOS + codeName + ubuntuPkg[i];
 					// Send a GET request
+					System.out.println("Link : " + repository);
 					client.getAbs(repository).followRedirects(true).send(ar -> {
 						JsonArray jsonArray = new JsonArray();
 						if (ar.succeeded()) {
-							
+
 							HttpResponse<Buffer> response = ar.result();
-							//System.out.println("URL : " + repository);
+							// System.out.println("URL : " + repository);
 							try {
-								ByteArrayInputStream responseBytes = new ByteArrayInputStream(response.body().getBytes());
+								ByteArrayInputStream responseBytes = new ByteArrayInputStream(
+										response.body().getBytes());
 								GZIPInputStream responseGzip = new GZIPInputStream(responseBytes);
 								InputStreamReader responseContent = new InputStreamReader(responseGzip, "UTF-8");
 								BufferedReader data = new BufferedReader(responseContent);
-								
+
 								Pattern blockNamePattern = Pattern.compile("^" + pkgName + "(.*)");
 								Pattern blockDescriptionPattern = Pattern.compile("Description(-fr)?: (.*)");
-								
+
 								Scanner scanner = new Scanner(data).useDelimiter("Package: ");
 								while (scanner.hasNext()) {
-									
+
 									String bloc = scanner.next();
 									Matcher m = blockNamePattern.matcher(bloc);
 									JsonObject pkgObj = new JsonObject();
-									
+
 									if (bloc.startsWith((pkgName))) {
-										
+
 										if (m.find()) {
 											pkgObj.put("Package", (m.group(0)));
 											m = blockDescriptionPattern.matcher(bloc);
-											
+
 											if (m.find()) {
 												pkgObj.put("Description", (m.group(2)));
 												jsonArray.add(pkgObj);
-												//System.out.println("LINK : " + repository);
-												//System.out.println(jsonArray.encodePrettily() + "\n\n");
+												// System.out.println("LINK : " + repository);
+												// System.out.println(jsonArray.encodePrettily() + "\n\n");
 											}
 										}
 									}
 								}
 								scanner.close();
-								
+
 							} catch (IOException e) {
 								e.printStackTrace();
 							}
@@ -122,13 +122,13 @@ public class PackageManagerSearch extends AbstractVerticle {
 					});
 				}
 				CompositeFuture.all(futures).onComplete(ar -> {
-					futures.forEach( fut -> {
-					    if (fut.succeeded() && fut.result() != null) {
-					    	arrayJsonArray.add(fut.result());
-					    } else {
-					    	System.out.println( "futures failed " + fut + " : " + fut.result() );
-					    }
-					  });
+					futures.forEach(fut -> {
+						if (fut.succeeded() && fut.result() != null) {
+							arrayJsonArray.add(fut.result());
+						} else {
+							System.out.println("futures failed " + fut + " : " + fut.result());
+						}
+					});
 					message.reply(arrayJsonArray.encodePrettily());
 				});
 
