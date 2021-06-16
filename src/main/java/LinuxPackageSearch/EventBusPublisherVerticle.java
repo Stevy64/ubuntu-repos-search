@@ -20,7 +20,7 @@ public class EventBusPublisherVerticle extends AbstractVerticle {
 
 	@Override
 	public void start(Future<Void> startFuture) throws Exception {
-		vertx.eventBus().request("kit.applications.chocolatey.package.search",
+		vertx.eventBus().request("kit.applications.ubuntu.package.search",
 				new JsonObject().put("Package", UBUNTU_REPOS).put("UbuntuCodeName", UBUNTU_CODE_NAME[0]), ar -> {
 					if (ar.succeeded()) {
 						// System.out.println("pkgName sent = " + );

@@ -11,12 +11,18 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
 import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
+import java.util.TreeSet;
 
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.CompositeFuture;
@@ -51,10 +57,9 @@ public class PackageManagerSearch extends AbstractVerticle {
 
 		EventBus eb = vertx.eventBus();
 
-		MessageConsumer<JsonObject> consumer = eb.consumer("kit.applications.chocolatey.package.search", message -> {
-			JsonArray arrayJsonArray = new JsonArray();
-			String pkgName = message.body().getString("Package");
-			String codeName = message.body().getString("UbuntuCodeName");
+		MessageConsumer<JsonObject> consumer = eb.consumer("kit.applications.ubuntu.package.search", message -> {
+			String pkgName = message.body().getString("Package").toLowerCase();
+			String codeName = message.body().getString("UbuntuCodeName").toLowerCase();
 			List<Future> futures = new ArrayList<>();
 
 			// Research implementation
@@ -62,17 +67,16 @@ public class PackageManagerSearch extends AbstractVerticle {
 				WebClientOptions options = new WebClientOptions();
 				WebClient client = WebClient.create(vertx, options);
 
-				List<Promise<JsonArray>> promises = new ArrayList<>();
 				for (int i = 0; i < ubuntuPkg.length; i++) {
 
-					Promise<JsonArray> promise = Promise.promise();
+					Promise<Set<Package>> promise = Promise.promise();
 					futures.add(promise.future());
-					promises.add(promise);
 					String repository = UBUNTU_REPOS + codeName + ubuntuPkg[i];
 					// Send a GET request
 					System.out.println("Link : " + repository);
 					client.getAbs(repository).followRedirects(true).send(ar -> {
-						JsonArray jsonArray = new JsonArray();
+						Set<Package> setOfPackages = new HashSet();
+						
 						if (ar.succeeded()) {
 
 							HttpResponse<Buffer> response = ar.result();
@@ -90,21 +94,21 @@ public class PackageManagerSearch extends AbstractVerticle {
 								Scanner scanner = new Scanner(data).useDelimiter("Package: ");
 								while (scanner.hasNext()) {
 
-									String bloc = scanner.next();
-									Matcher m = blockNamePattern.matcher(bloc);
-									JsonObject pkgObj = new JsonObject();
+									String block = scanner.next();
+									Matcher m = blockNamePattern.matcher(block);
+									Package pkg = new Package();
 
-									if (bloc.startsWith((pkgName))) {
+									if (block.startsWith((pkgName))) {
 
 										if (m.find()) {
-											pkgObj.put("Package", (m.group(0)));
-											m = blockDescriptionPattern.matcher(bloc);
+											pkg.name = (m.group(0));
+											m = blockDescriptionPattern.matcher(block);
 
 											if (m.find()) {
-												pkgObj.put("Description", (m.group(2)));
-												jsonArray.add(pkgObj);
-												// System.out.println("LINK : " + repository);
-												// System.out.println(jsonArray.encodePrettily() + "\n\n");
+												pkg.description = (m.group(2));
+												setOfPackages.add(pkg);
+												//System.out.println("LINK : " + repository);
+												//System.out.println(setOfPackages + "\n\n");
 											}
 										}
 									}
@@ -114,22 +118,31 @@ public class PackageManagerSearch extends AbstractVerticle {
 							} catch (IOException e) {
 								e.printStackTrace();
 							}
-							promise.complete(jsonArray);
+							promise.complete(setOfPackages);
 						} else {
-							System.out.println("GET : Something went wrong " + ar.cause().getMessage());
+							System.out.println("Something went wrong " + ar.cause().getMessage());
 							promise.fail(ar.cause().getMessage());
 						}
 					});
 				}
 				CompositeFuture.all(futures).onComplete(ar -> {
+					Set<Package> set = new HashSet<Package>();
 					futures.forEach(fut -> {
-						if (fut.succeeded() && fut.result() != null) {
-							arrayJsonArray.add(fut.result());
+						if (fut.succeeded()) {
+							set.addAll((Set<Package>) fut.result());
 						} else {
 							System.out.println("futures failed " + fut + " : " + fut.result());
 						}
 					});
-					message.reply(arrayJsonArray.encodePrettily());
+					
+					JsonArray jsonArray = new JsonArray();
+				    for (Package pkg : set) {
+				    	jsonArray.add(new JsonObject()
+				                .put("name", pkg.name)
+				                .put("description", pkg.description));
+				    }
+					System.out.println(jsonArray.encodePrettily());
+					//message.reply(set.toString());
 				});
 
 			} catch (Exception e) {
