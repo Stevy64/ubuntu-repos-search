@@ -43,7 +43,7 @@ import io.vertx.ext.web.client.WebClientOptions;
  */
 public class PackageManagerSearch extends AbstractVerticle {
 	public static final String UBUNTU_REPOS = "http://archive.ubuntu.com/ubuntu/dists/";
-	private String[] ubuntuPkg = { "/main/i18n/Translation-fr.gz",
+	private String[] paths = { "/main/i18n/Translation-fr.gz",
 			"/restricted/i18n/Translation-fr.gz",
 			"/universe/i18n/Translation-fr.gz",
 			"/multiverse/i18n/Translation-fr.gz",
@@ -67,11 +67,11 @@ public class PackageManagerSearch extends AbstractVerticle {
 				WebClientOptions options = new WebClientOptions();
 				WebClient client = WebClient.create(vertx, options);
 
-				for (int i = 0; i < ubuntuPkg.length; i++) {
+				for (int i = 0; i < paths.length; i++) {
 
 					Promise<Set<Package>> promise = Promise.promise();
 					futures.add(promise.future());
-					String repository = UBUNTU_REPOS + codeName + ubuntuPkg[i];
+					String repository = UBUNTU_REPOS + codeName + paths[i];
 					// Send a GET request
 					System.out.println("Link : " + repository);
 					client.getAbs(repository).followRedirects(true).send(ar -> {
