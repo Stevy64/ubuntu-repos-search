@@ -3,6 +3,7 @@ package LinuxPackageSearch;
 public class Package {
 	public String name;
 	public String description;
+	public String version;
 	
 	@Override
 	public int hashCode() {
@@ -29,7 +30,7 @@ public class Package {
 	}
 	
 	public String toString() {
-		 return "{\"name\": " + "\"" + this.name + "\"" + ", \"description\": " + "\"" + this.description + "\"" + "}";
+		 return "{\"name\": " + "\"" + this.name + "\"" + ", \"version\": " + "\"" + this.version + "\"" + ", \"description\": " + "\"" + this.description + "}";
 	}
 	
 	

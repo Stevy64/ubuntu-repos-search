@@ -90,25 +90,32 @@ public class PackageManagerSearch extends AbstractVerticle {
 
 								Pattern blockNamePattern = Pattern.compile("^" + pkgName + "(.*)");
 								Pattern blockDescriptionPattern = Pattern.compile("Description(-fr)?: (.*)");
+								Pattern blockVersionPattern = Pattern.compile("Version: (.*)");
 
 								Scanner scanner = new Scanner(data).useDelimiter("Package: ");
 								while (scanner.hasNext()) {
 
 									String block = scanner.next();
-									Matcher m = blockNamePattern.matcher(block);
 									Package pkg = new Package();
 
 									if (block.startsWith((pkgName))) {
+										
+										Matcher m = blockNamePattern.matcher(block);
 
 										if (m.find()) {
 											pkg.name = (m.group(0));
-											m = blockDescriptionPattern.matcher(block);
+											m = blockVersionPattern.matcher(block);
 
 											if (m.find()) {
-												pkg.description = (m.group(2));
-												setOfPackages.add(pkg);
-												//System.out.println("LINK : " + repository);
-												//System.out.println(setOfPackages + "\n\n");
+												pkg.version = (m.group(1));
+												m = blockDescriptionPattern.matcher(block);
+
+												if (m.find()) {
+													pkg.description = (m.group(2));
+													setOfPackages.add(pkg);
+//													System.out.println("LINK : " + repository);
+//													System.out.println(setOfPackages + "\n\n");
+												}
 											}
 										}
 									}
@@ -139,6 +146,7 @@ public class PackageManagerSearch extends AbstractVerticle {
 				    for (Package pkg : set) {
 				    	jsonArray.add(new JsonObject()
 				                .put("name", pkg.name)
+				                .put("version", pkg.version)
 				                .put("description", pkg.description));
 				    }
 					System.out.println(jsonArray.encodePrettily());
