@@ -29,7 +29,7 @@ public class MainVerticle {
 			}
 		});
 
-		vertx.deployVerticle(new PackageManagerSearch(), new Handler<AsyncResult<String>>() {
+		vertx.deployVerticle(new LinuxPackageSearch(), new Handler<AsyncResult<String>>() {
 
 			@Override
 			public void handle(AsyncResult<String> event) {

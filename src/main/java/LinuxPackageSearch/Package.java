@@ -1,9 +1,11 @@
 package LinuxPackageSearch;
 
+import io.vertx.core.json.JsonObject;
+
 public class Package {
 	public String name;
 	public String description;
-	public String version;
+	public JsonObject version;
 	
 	@Override
 	public int hashCode() {

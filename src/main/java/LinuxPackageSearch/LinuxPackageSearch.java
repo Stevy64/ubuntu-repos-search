@@ -41,7 +41,7 @@ import io.vertx.ext.web.client.WebClientOptions;
  *
  * @author steevy
  */
-public class PackageManagerSearch extends AbstractVerticle {
+public class LinuxPackageSearch extends AbstractVerticle {
 	public static final String UBUNTU_REPOS = "http://archive.ubuntu.com/ubuntu/dists/";
 	private String[] paths = { "/main/i18n/Translation-fr.gz",
 			"/restricted/i18n/Translation-fr.gz",
@@ -107,7 +107,10 @@ public class PackageManagerSearch extends AbstractVerticle {
 											m = blockVersionPattern.matcher(block);
 
 											if (m.find()) {
-												pkg.version = (m.group(1));
+												//pkg.version = (m.group(1));
+												JsonObject version = new JsonObject();
+												version.put(codeName, (m.group(1)));
+												pkg.version = version;
 												m = blockDescriptionPattern.matcher(block);
 
 												if (m.find()) {

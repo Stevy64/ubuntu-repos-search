@@ -10,13 +10,17 @@ import java.io.ByteArrayInputStream;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
 import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
+
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
@@ -35,120 +39,138 @@ import io.vertx.ext.web.client.WebClientOptions;
  * @author steevy
  */
 public class PackageManagerSearchImproved extends AbstractVerticle {
-	
-	public static final String UBUNTU_REPOS = "http://archive.ubuntu.com/ubuntu/dists/";
-	private String[] ubuntuPkg = { "/main/i18n/Translation-fr.gz",
-			"/restricted/i18n/Translation-fr.gz",
-			"/universe/i18n/Translation-fr.gz",
-			"/multiverse/i18n/Translation-fr.gz",
-			"/main/binary-amd64/Packages.gz",
-			"/restricted/binary-amd64/Packages.gz",
-			"/universe/binary-amd64/Packages.gz",
-			"/multiverse/binary-amd64/Packages.gz" };
 
-	@Override
-	public void start(Future<Void> startFuture) {
+    public static final String UBUNTU_REPOS = "http://archive.ubuntu.com/ubuntu/dists/";
+    private String[] paths = {
+        "/main/i18n/Translation-fr.gz",
+        "/restricted/i18n/Translation-fr.gz",
+        "/universe/i18n/Translation-fr.gz",
+        "/multiverse/i18n/Translation-fr.gz",
+        "/main/binary-amd64/Packages.gz",
+        "/restricted/binary-amd64/Packages.gz",
+        "/universe/binary-amd64/Packages.gz",
+        "/multiverse/binary-amd64/Packages.gz"};
 
-		EventBus eb = vertx.eventBus();
+    @Override
+    public void start(Future<Void> startFuture) {
 
-		MessageConsumer<JsonObject> consumer = eb.consumer("kit.applications.case.sensitive", message -> {
-			String pkgName = message.body().getString("Package").toLowerCase();
-			String codeName = message.body().getString("UbuntuCodeName").toLowerCase();
-			List<Future> futures = new ArrayList<>();
+        EventBus eb = vertx.eventBus();
 
-			// Research implementation
-			try {
-				WebClientOptions options = new WebClientOptions();
-				WebClient client = WebClient.create(vertx, options);
+        @SuppressWarnings("unchecked")
+        MessageConsumer<JsonObject> consumer = eb.consumer("kit.applications.ubuntu.package.search", message -> {
+            String pkgName = message.body().getString("name").toLowerCase();
+            String codeName = message.body().getString("UbuntuCodeName").toLowerCase();
+            List<Future> futures = new ArrayList<>();
 
-				for (int i = 0; i < ubuntuPkg.length; i++) {
+            // Research implementation
+            try {
+                WebClientOptions options = new WebClientOptions();
+                WebClient client = WebClient.create(vertx, options);
 
-					Promise<JsonArray> promise = Promise.promise();
-					futures.add(promise.future());
-					String repository = UBUNTU_REPOS + codeName + ubuntuPkg[i];
-					// Send a GET request
-					System.out.println("Link : " + repository);
-					client.getAbs(repository).followRedirects(true).send(ar -> {
-						JsonArray jsonArray = new JsonArray();
-						if (ar.succeeded()) {
+                for (String archive : paths) {
+                    Promise<Set<Package>> promise = Promise.promise();
+                    futures.add(promise.future());
+                    String repository = UBUNTU_REPOS + codeName + archive;
 
-							HttpResponse<Buffer> response = ar.result();
-							// System.out.println("URL : " + repository);
-							try {
-								ByteArrayInputStream responseBytes = new ByteArrayInputStream(
-										response.body().getBytes());
-								GZIPInputStream responseGzip = new GZIPInputStream(responseBytes);
-								InputStreamReader responseContent = new InputStreamReader(responseGzip, "UTF-8");
-								BufferedReader data = new BufferedReader(responseContent);
+                    // Send GET requests
+                    client.getAbs(repository).followRedirects(true).send(ar -> {
+                        @SuppressWarnings("unchecked")
+                        Set<Package> setOfPackages = new HashSet();
+                        if (ar.succeeded()) {
 
-//								Pattern blockNamePattern = Pattern.compile("^" + pkgName + "(.*)");
-								
-								Pattern blockNamePattern = Pattern.compile("[A-Z]");
-								Scanner scanner = new Scanner(data).useDelimiter("Package: ");
-								//System.out.println("Block : " + scanner.nextLine());
-								
-								StringBuffer sb = new StringBuffer();
-						        while (true) {
-						            String line = data.readLine();
-						            if (line == "" || line == null) break;
-						            	sb.append(line).append("\n");
-						        }
-						        
-						        String[] blocks = sb.toString().split("\n\n");
-						        for (String block : blocks) {
-						        	JsonObject jsonObject = new JsonObject();
-						        	//System.out.println("Contains : " + block);
-						            //System.out.println("Block : " + block);
-						        	String[] lines = block.split("\n");
-					                for (String line : lines) {
-					                	if (line.startsWith("Package: ")) {
-											//System.out.println("Line : " + line);
-											Matcher m = blockNamePattern.matcher(line.substring(8));
-											if (m.find()) {
-												System.out.println("FOUND-UPPER0 : " + m.group(0));
-												System.out.println("Line : " + line);
-											}
-											}
-										}
-						        	
-						        } 
+                            HttpResponse<Buffer> response = ar.result();
+                            try {
+                                ByteArrayInputStream responseBytes = new ByteArrayInputStream(response.body().getBytes());
+                                GZIPInputStream responseGzip = new GZIPInputStream(responseBytes);
 
-							} catch (IOException e) {
-								e.printStackTrace();
-							}
-							promise.complete(jsonArray);
-						} else {
-							System.out.println("GET : Something went wrong " + ar.cause().getMessage());
-							promise.fail(ar.cause().getMessage());
-						}
-					});
-				}
-				CompositeFuture.all(futures).onComplete(ar -> {
-					JsonArray arrayJsonArray = new JsonArray();
-					futures.forEach(fut -> {
-						if (fut.succeeded()) {
-							arrayJsonArray.addAll((JsonArray) fut.result());
-							System.out.println(arrayJsonArray.encodePrettily());
-						} else {
-							System.out.println("futures failed " + fut + " : " + fut.result());
-						}
-					});
-					//message.reply(arrayJsonArray.encodePrettily());
-				});
+                                setOfPackages = gzipDataParser(responseGzip, pkgName, codeName, new HashSet<Package>());
 
-			} catch (Exception e) {
-				message.fail(-1, e.toString());
-			}
-			System.out.println("Received pkgName toSearch: " + message.body());
+                            } catch (IOException e) {
+                                System.out.println("Exception handled : " + e);
+                                promise.fail(e);
+                            }
+                            promise.complete(setOfPackages);
+                        } else {
+                        	System.out.println("MethodGET : Something went wrong " + ar.cause().toString());
+                            promise.fail(ar.cause());
+                        }
+                    });
+                }
+                CompositeFuture.all(futures).setHandler(ar -> {
+                    Set<Package> packages = new HashSet<>();
+                    futures.forEach(fut -> {
+                        if (fut.succeeded()) {
+                            packages.addAll((Set<Package>) fut.result());
+                        } else {
+                        	System.out.println("futures failed " + fut + " : " + fut.result());
+                            message.fail(1, "qv9d7m");
+                        }
+                    });
 
-		});
+                    JsonArray jsonArray = new JsonArray();
+                    packages.stream().limit(100).forEach(pkg -> {
+                        jsonArray.add(new JsonObject()
+                                .put("name", pkg.name)
+                                .put("version", pkg.version)
+                                .put("description", pkg.description));
+                    });
+                    message.reply(jsonArray);
+                });
 
-		consumer.completionHandler(res -> {
-			if (!res.succeeded()) {
-				System.out.println("Failed : " + res.failed());
-			}
-		});
+            } catch (Exception e) {
+                message.fail(1, "qv9d8n");
+            }
+            System.out.println("Received pkgName toSearch: " + message.body());
 
-	}
+        });
+
+        consumer.completionHandler(res -> {
+            if (!res.succeeded()) {
+            	System.out.println("Failed : " + res.failed());
+            }
+        });
+    }
+
+    public Set<Package> gzipDataParser(GZIPInputStream responseGzip, String pkgName, String codeName, HashSet<Package> setOfPackages) throws UnsupportedEncodingException {
+
+        InputStreamReader responseContent = new InputStreamReader(responseGzip, "UTF-8");
+        BufferedReader data = new BufferedReader(responseContent);
+
+        Pattern blockNamePattern = Pattern.compile("^" + pkgName + "(.*)");
+        Pattern blockDescriptionPattern = Pattern.compile("Description(-fr)?: (.*)");
+        Pattern blockVersionPattern = Pattern.compile("Version: (.*)");
+
+        try (Scanner scanner = new Scanner(data).useDelimiter("Package: ")) {
+            while (scanner.hasNext()) {
+
+                String block = scanner.next();
+                Package pkg = new Package();
+
+                if (block.startsWith((pkgName))) {
+
+                    Matcher m = blockNamePattern.matcher(block);
+
+                    if (m.find()) {
+                        pkg.name = (m.group(0));
+                        m = blockVersionPattern.matcher(block);
+
+                        if (m.find()) {
+                            JsonObject version = new JsonObject();
+                            version.put(codeName, (m.group(1)));
+                            pkg.version = version;
+                            m = blockDescriptionPattern.matcher(block);
+
+                            if (m.find()) {
+                                pkg.description = (m.group(2));
+                                setOfPackages.add(pkg);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return setOfPackages;
+    }
 
 }
